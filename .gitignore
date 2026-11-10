@@ -1,0 +1,27 @@
+# Segredos e variáveis de ambiente
+.env
+.env.*
+!.env.example
+.streamlit/secrets.toml
+
+# Ambientes virtuais
+.venv/
+venv/
+ENV/
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Testes e relatórios
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Munder Difflin / MemPalace / Hive
+palace/
+hallways.json
+roster-backups/
+roster.json
