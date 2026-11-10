@@ -1,74 +1,56 @@
-# 📊 AI Customer Feedback Analyzer
+# Customer Feedback Analyzer
 
-> Transforme múltiplos feedbacks de clientes em insights claros (sentimento, tópicos e resumo executivo) em segundos, utilizando inteligência artificial com custo zero.
+Aplicação web em Streamlit para análise automática de feedbacks de clientes utilizando a API do Google Gemini.
 
----
+## Funcionalidades
+- Classificação de sentimento geral (Positivo, Neutro ou Negativo) com nível de confiança.
+- Resumo executivo em 3 pontos objetivos.
+- Identificação de tópicos recorrentes.
+- Gráficos de distribuição de sentimentos e tópicos.
+- Upload de arquivos `.csv` e `.txt` (com seleção de coluna para planilhas).
+- Exportação dos relatórios em Markdown (.md) e dados em CSV (.csv).
 
-## ✨ O que o app faz
+## Pré-requisitos
+- Python 3.10+
+- Chave de API do Gemini (gratuita no [Google AI Studio](https://aistudio.google.com/apikey))
 
-Ao colar comentários, reviews ou mensagens de clientes, a aplicação processa o lote e retorna:
-- **Sentimento Geral**: Positivo, Neutro ou Negativo com porcentagem de confiança.
-- **Resumo Executivo**: Exatamente 3 pontos acionáveis baseados exclusivamente nos feedbacks.
-- **Principais Tópicos**: Tags dos assuntos mais citados (ex: entrega, atendimento, preço).
-- **Contador Automático**: Total de feedbacks identificados e analisados no lote.
+## Instalação e Execução
 
----
-
-## 🚀 Como Executar em 3 Passos
-
-### 1. Clonar e preparar o ambiente
+1. Clone o repositório e crie o ambiente virtual:
 ```bash
 python -m venv .venv
-# Windows:
-.venv\Scripts\activate
-# Linux/Mac:
-source .venv/bin/activate
+source .venv/bin/activate  # No Windows: .venv\Scripts\activate
+```
 
+2. Instale as dependências:
+```bash
 pip install -r requirements.txt
 ```
 
-### 2. Configurar a API Key do Gemini (Gratuita)
-Obtenha sua chave gratuita no [Google AI Studio](https://aistudio.google.com/apikey).
-
-Crie o arquivo `.env` a partir do exemplo:
+3. Configure a chave de API:
+Copie o arquivo de exemplo:
 ```bash
-# Windows:
-copy .env.example .env
-# Linux/Mac:
-cp .env.example .env
+cp .env.example .env  # No Windows: copy .env.example .env
 ```
-Abra o `.env` e cole sua chave:
+Edite o arquivo `.env`:
 ```env
 GEMINI_API_KEY=sua_chave_aqui
 ```
-*(Você também pode digitar ou colar a chave diretamente na barra lateral da aplicação)*.
+*(A chave também pode ser informada diretamente na barra lateral da aplicação).*
 
-### 3. Rodar a aplicação
+4. Inicie o app:
 ```bash
 streamlit run app.py
 ```
 
----
+## Arquitetura
+- `app.py`: Interface Streamlit, uploads, gráficos e downloads.
+- `analyzer.py`: Chamadas ao Gemini via SDK `google-genai`, schema Pydantic, parsers e exportações.
+- `sample_feedbacks.csv`: Base de dados de exemplo para testes de importação.
 
-## 🤖 Construído com Inteligência Artificial
+## Modelos Utilizados
+- Inferência da aplicação: Gemini 2.5 Flash (`gemini-2.5-flash`).
+- Desenvolvimento assistido por IA: Gemini 3.8 Flash (High/Medium) via framework multiagente.
 
-Este projeto foi totalmente planejado, desenvolvido, testado e documentado de forma autônoma por um **escritório colaborativo de agentes de IA** utilizando o framework **Munder Difflin** e **Google Antigravity**.
-
-A divisão de trabalho e os modelos utilizados por cada agente foram:
-
-| Agente | Papel | Responsabilidade | Modelo de IA Utilizado |
-|---|---|---|---|
-| **Michael Scott** | Orquestrador | Arquitetura, governança, kanban e integração Git | **Gemini 3.8 Flash (High)** |
-| **Dwight Schrute** | Backend / IA | Prompt engineering, schemas Pydantic e chamadas ao Gemini | **Gemini 3.8 Flash (Medium)** |
-| **Pam Beesly** | Frontend / UI | Interface Streamlit, sidebar, métricas visuais e badges | **Gemini 3.8 Flash (Medium)** |
-| **Jim Halpert** | Docs & QA | Gestão de dependências, `.gitignore` seguro e testes automatizados | **Gemini 3.8 Flash (Medium)** |
-
-### Modelo de IA da Aplicação
-Para processar os feedbacks dos clientes em tempo de execução, o app consome a API oficial do Google através do pacote `google-genai`:
-- **Modelo**: `gemini-2.5-flash` (tier gratuito do Google AI Studio).
-- **Segurança**: Saída estruturada estrita via Pydantic (`response_schema`) e isolamento dos feedbacks em `<feedbacks>` para mitigação de prompt injection.
-
----
-
-## 📄 Licença
-Distribuído sob a licença MIT.
+## Licença
+MIT
