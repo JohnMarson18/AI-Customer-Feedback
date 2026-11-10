@@ -1,6 +1,9 @@
-"""Camada de IA: schema, prompt e chamada ao Gemini. Não importa Streamlit."""
+"""Camada de IA: schema, prompt, chamada ao Gemini e processamento de arquivos. Não importa Streamlit."""
 from __future__ import annotations
 
+import csv
+import io
+import os
 import re
 from typing import Literal
 
@@ -10,6 +13,7 @@ from pydantic import BaseModel, ValidationError
 
 MODEL_NAME = "gemini-2.5-flash"
 MAX_CHARS = 30_000
+MAX_FILE_FEEDBACKS = 500
 
 SYSTEM_PROMPT = """Você é um analista sênior de Customer Experience.
 Receberá um lote de feedbacks de clientes dentro de <feedbacks>...</feedbacks>.
@@ -41,6 +45,184 @@ def count_feedbacks(text: str) -> int:
     if len(blocks) <= 1:
         return len([ln for ln in text.splitlines() if ln.strip()])
     return len(blocks)
+
+
+def _decode_content(file_content: bytes | str) -> str:
+    """Decodifica conteúdo de arquivo com múltiplos encodings tolerantes."""
+    if isinstance(file_content, str):
+        return file_content
+    for enc in ("utf-8-sig", "utf-8", "latin-1", "cp1252"):
+        try:
+            return file_content.decode(enc)
+        except UnicodeDecodeError:
+            continue
+    raise AnalyzerError("Não foi possível decodificar o arquivo. Salve-o em formato UTF-8.")
+
+
+def get_csv_columns(file_content: bytes | str) -> list[str]:
+    """Retorna lista de colunas encontradas no CSV para seleção na UI."""
+    text = _decode_content(file_content).strip()
+    if not text:
+        return []
+    sample = text[:2048]
+    try:
+        dialect = csv.Sniffer().sniff(sample, delimiters=";,|\t")
+        delimiter = dialect.delimiter
+    except Exception:
+        delimiter = ";" if ";" in sample else ","
+
+    reader = csv.reader(io.StringIO(text), delimiter=delimiter)
+    try:
+        first_row = next(reader)
+        return [c.strip() for c in first_row if c.strip()]
+    except Exception:
+        return []
+
+
+def parse_feedback_file(
+    file_content: bytes | str,
+    filename: str,
+    column_name: str | None = None,
+) -> list[str]:
+    """Lê e sanitiza arquivo (.csv ou .txt) devolvendo lista de feedbacks limpos."""
+    text = _decode_content(file_content).strip()
+    if not text:
+        raise AnalyzerError("O arquivo enviado está vazio.")
+
+    filename_lower = filename.lower()
+    feedbacks: list[str] = []
+
+    if filename_lower.endswith(".txt"):
+        raw_items = [b.strip() for b in re.split(r"\n\s*\n", text) if b.strip()]
+        if len(raw_items) <= 1:
+            raw_items = [ln.strip() for ln in text.splitlines() if ln.strip()]
+        feedbacks = raw_items
+    elif filename_lower.endswith(".csv"):
+        sample = text[:2048]
+        try:
+            dialect = csv.Sniffer().sniff(sample, delimiters=";,|\t")
+            delimiter = dialect.delimiter
+        except Exception:
+            delimiter = ";" if ";" in sample else ","
+
+        reader = csv.reader(io.StringIO(text), delimiter=delimiter)
+        rows = [row for row in reader if any(cell.strip() for cell in row)]
+        if not rows:
+            raise AnalyzerError("O arquivo CSV não possui dados legíveis.")
+
+        header = [c.strip().lower() for c in rows[0]]
+        has_header = False
+        target_idx = 0
+
+        if column_name:
+            col_target = column_name.strip().lower()
+            if col_target in header:
+                target_idx = header.index(col_target)
+                has_header = True
+        else:
+            # Tenta auto-detectar coluna pelo nome
+            common_names = ["feedback", "feedbacks", "review", "reviews", "comentario", "comentarios", "texto", "mensagem", "opiniao"]
+            for i, col in enumerate(header):
+                if any(name in col for name in common_names):
+                    target_idx = i
+                    has_header = True
+                    break
+
+        data_rows = rows[1:] if has_header else rows
+        for r in data_rows:
+            if target_idx < len(r) and r[target_idx].strip():
+                feedbacks.append(r[target_idx].strip())
+            elif r and any(cell.strip() for cell in r):
+                feedbacks.append(" ".join(cell.strip() for cell in r if cell.strip()))
+    else:
+        raise AnalyzerError("Formato não suportado. Envie arquivos .csv ou .txt.")
+
+    if not feedbacks:
+        raise AnalyzerError("Nenhum feedback válido foi encontrado no arquivo.")
+    if len(feedbacks) > MAX_FILE_FEEDBACKS:
+        raise AnalyzerError(
+            f"O arquivo contém {len(feedbacks)} feedbacks. O limite máximo por análise é de {MAX_FILE_FEEDBACKS}."
+        )
+
+    joined = "\n\n".join(feedbacks)
+    if len(joined) > MAX_CHARS:
+        raise AnalyzerError(
+            f"O volume de feedbacks ({len(joined)} caracteres) excede o limite de {MAX_CHARS} caracteres. Reduza o arquivo."
+        )
+
+    return feedbacks
+
+
+def compute_chart_metrics(analysis: FeedbackAnalysis) -> dict:
+    """Estrutura dados para visualização gráfica no Streamlit."""
+    conf = max(10, min(100, analysis.confianca))
+    rest = max(0, 100 - conf)
+    sentimentos = {"Positivo": 0, "Neutro": 0, "Negativo": 0}
+    sentimentos[analysis.sentimento_geral] = conf
+
+    outros = [s for s in sentimentos if s != analysis.sentimento_geral]
+    sentimentos[outros[0]] = rest // 2
+    sentimentos[outros[1]] = rest - (rest // 2)
+
+    topicos_scores = {
+        topico.strip().capitalize(): max(1, len(analysis.topicos) - idx)
+        for idx, topico in enumerate(analysis.topicos)
+    }
+
+    return {
+        "sentimentos": sentimentos,
+        "topicos": topicos_scores,
+    }
+
+
+def generate_markdown_report(analysis: FeedbackAnalysis, total_feedbacks: int) -> str:
+    """Gera relatório executivo em Markdown com data/hora e detalhes estruturados."""
+    from datetime import datetime
+
+    agora = datetime.now().strftime("%d/%m/%Y às %H:%M")
+    bullets = "\n".join(f"- {b}" for b in analysis.resumo_executivo)
+    tags = ", ".join(f"`{t}`" for t in analysis.topicos)
+
+    return f"""# 📊 Relatório Executivo — Análise de Feedbacks
+*Gerado em {agora} pelo AI Customer Feedback Analyzer*
+
+---
+
+## 📈 Métricas Gerais
+- **Total de Feedbacks Analisados**: {total_feedbacks}
+- **Sentimento Geral**: {analysis.sentimento_geral}
+- **Nível de Confiança**: {analysis.confianca}%
+
+### 💬 Justificativa do Sentimento
+> {analysis.justificativa}
+
+---
+
+## 📝 Resumo Executivo
+{bullets}
+
+---
+
+## 🏷️ Principais Tópicos Identificados
+{tags}
+
+---
+*Análise realizada utilizando o modelo Gemini 2.5 Flash via SDK oficial google-genai.*
+"""
+
+
+def generate_csv_export(analysis: FeedbackAnalysis) -> str:
+    """Gera CSV estruturado com métricas e resumo (usar encoding utf-8-sig)."""
+    output = io.StringIO()
+    writer = csv.writer(output, delimiter=";")
+    writer.writerow(["Metrica", "Valor"])
+    writer.writerow(["Sentimento Geral", analysis.sentimento_geral])
+    writer.writerow(["Confianca (%)", analysis.confianca])
+    writer.writerow(["Justificativa", analysis.justificativa])
+    writer.writerow(["Topicos", ", ".join(analysis.topicos)])
+    for idx, bullet in enumerate(analysis.resumo_executivo, 1):
+        writer.writerow([f"Resumo Item {idx}", bullet])
+    return output.getvalue()
 
 
 def analyze_feedbacks(api_key: str, feedbacks: str) -> FeedbackAnalysis:
